@@ -144,14 +144,15 @@ func neighHandle(neigh *Neigh, req *nl.NetlinkRequest) error {
 	}
 	req.AddData(&msg)
 
-	ipData := neigh.IP.To4()
-	if ipData == nil {
-		ipData = neigh.IP.To16()
+	if len(neigh.IP) > 0 {
+		ipData := neigh.IP.To4()
+		if ipData == nil {
+			ipData = neigh.IP.To16()
+		}
+
+		dstData := nl.NewRtAttr(NDA_DST, ipData)
+		req.AddData(dstData)
 	}
-
-	dstData := nl.NewRtAttr(NDA_DST, ipData)
-	req.AddData(dstData)
-
 	if neigh.LLIPAddr != nil {
 		llIPData := nl.NewRtAttr(NDA_LLADDR, neigh.LLIPAddr.To4())
 		req.AddData(llIPData)
