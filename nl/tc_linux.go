@@ -3,6 +3,9 @@ package nl
 import (
 	"encoding/binary"
 	"unsafe"
+	"fmt"
+	"net"
+	"strconv"
 )
 
 // LinkLayer
@@ -91,6 +94,7 @@ const (
 	SizeofTcGen          = 0x14
 	SizeofTcMirred       = SizeofTcGen + 0x08
 	SizeofTcPolice       = 2*SizeofTcRateSpec + 0x20
+	SizeofTcTunnelKey    = SizeofTcGen + 0x04
 )
 
 // struct tcmsg {
@@ -687,6 +691,479 @@ func (x *TcMirred) Serialize() []byte {
 	return (*(*[SizeofTcMirred]byte)(unsafe.Pointer(x)))[:]
 }
 
+// tunnel_key begin
+
+const (
+	TCA_TUNNEL_KEY_UNSPEC = iota
+	TCA_TUNNEL_KEY_TM
+	TCA_TUNNEL_KEY_PARMS
+	TCA_TUNNEL_KEY_ENC_IPV4_SRC	/* be32 */
+	TCA_TUNNEL_KEY_ENC_IPV4_DST	/* be32 */
+	TCA_TUNNEL_KEY_ENC_IPV6_SRC	/* struct in6_addr */
+	TCA_TUNNEL_KEY_ENC_IPV6_DST	/* struct in6_addr */
+	TCA_TUNNEL_KEY_ENC_KEY_ID	/* be64 */
+	TCA_TUNNEL_KEY_PAD
+	TCA_TUNNEL_KEY_ENC_DST_PORT	/* be16 */
+	TCA_TUNNEL_KEY_NO_CSUM		/* u8 */
+	TCA_TUNNEL_KEY_MAX = TCA_TUNNEL_KEY_NO_CSUM
+)
+
+type TcTunnelKey struct {
+	TcGen
+	T_ACTION int32
+}
+
+func (msg *TcTunnelKey) Len() int {
+	return SizeofTcTunnelKey
+}
+
+func DeserializeTcTunnelKey(b []byte) *TcTunnelKey {
+	return (*TcTunnelKey)(unsafe.Pointer(&b[0:SizeofTcTunnelKey][0]))
+}
+
+func (x *TcTunnelKey) Serialize() []byte {
+	return (*(*[SizeofTcTunnelKey]byte)(unsafe.Pointer(x)))[:]
+}
+
+// tunnel_key end
+
+
+// tc pedit begin
+
+const (
+	PeditDebug = true
+	MAX_OFFS = 128
+)
+
+const (
+	TIPV4 = 1
+	TIPV6 = 2
+	TINT = 3
+	TU32 = 4
+	TMAC = 5
+)
+
+const (
+	RU32 = 0xFFFFFFFF
+	RU16 = 0xFFFF
+	RU8 = 0xFF
+)
+
+const (
+	TCA_PEDIT_UNSPEC = iota
+	TCA_PEDIT_TM
+	TCA_PEDIT_PARMS
+	TCA_PEDIT_PAD
+	TCA_PEDIT_PARMS_EX
+	TCA_PEDIT_KEYS_EX
+	TCA_PEDIT_KEY_EX
+	TCA_PEDIT_MAX = TCA_PEDIT_KEY_EX
+)
+
+const (
+	TCA_PEDIT_KEY_EX_CMD_SET = 0
+	TCA_PEDIT_KEY_EX_CMD_ADD = 1
+	TCA_PEDIT_CMD_MAX = TCA_PEDIT_KEY_EX_CMD_ADD
+)
+
+const (
+	TCA_PEDIT_KEY_EX_HTYPE = 1
+	TCA_PEDIT_KEY_EX_CMD = 2
+	TCA_PEDIT_KEY_EX_MAX = TCA_PEDIT_KEY_EX_CMD
+)
+
+const (
+	TCA_PEDIT_KEY_EX_HDR_TYPE_NETWORK = iota
+	TCA_PEDIT_KEY_EX_HDR_TYPE_ETH
+	TCA_PEDIT_KEY_EX_HDR_TYPE_IP4
+	TCA_PEDIT_KEY_EX_HDR_TYPE_IP6
+	TCA_PEDIT_KEY_EX_HDR_TYPE_TCP
+	TCA_PEDIT_KEY_EX_HDR_TYPE_UDP
+	TCA_PEDIT_HDR_TYPE_MAX = TCA_PEDIT_KEY_EX_HDR_TYPE_UDP
+)
+
+type TcPeditKey struct {
+   Mask  	uint32 /* AND */
+   Val   	uint32 /*XOR */
+   Off   	uint32 /*offset */
+   At		uint32
+   Offmask	uint32
+   Shift	uint32
+}
+
+type TcPeditSel struct {
+	TcGen
+	Nkeys	uint8
+	Flags 	uint8
+	Keys	[MAX_OFFS]TcPeditKey
+}
+
+func (tcsel *TcPeditSel) Len() int {
+	return (int)(unsafe.Offsetof(tcsel.Keys)) + (int)(tcsel.Nkeys) * (int)(unsafe.Sizeof(TcPeditKey{}))
+}
+
+func DeserializeTcPeditSel(b []byte) *TcPeditSel {
+	//return (*TcTunnelKey)(unsafe.Pointer(&b[0:SizeofTcTunnelKey][0]))
+	return nil
+}
+
+func (tcsel *TcPeditSel) Serialize() []byte {
+	const size = (uint32)(unsafe.Sizeof(*tcsel))
+	datalen := tcsel.Len()
+	fmt.Printf("size:%v, datalen:%v\n", size, datalen)
+	return (*(*[size]byte)(unsafe.Pointer(tcsel)))[:datalen]
+}
+
+type PeditCMD struct {
+	Key		string
+	Action	string
+	Val		string
+}
+
+type MPeditKey struct {
+    Mask 	uint32  /* AND */
+    Val		uint32	  /*XOR */
+    Off		uint32 /*offset */
+	At		uint32
+	Offmask	uint32
+	Shift	uint32
+
+	Htype 	uint32
+	Cmd		uint32
+}
+
+type MPeditKeyEx struct {
+	Htype	uint32
+	Cmd		uint32
+}
+
+type MPeditSel struct {
+	Sel TcPeditSel
+	//Keys[MAX_OFFS] TcPeditKey
+	Keys_ex[MAX_OFFS] MPeditKeyEx
+	Extended bool
+}
+
+func PackKey(_sel *MPeditSel, tkey *MPeditKey) int {
+	var sel *TcPeditSel = nil
+	var keys_ex *[MAX_OFFS] MPeditKeyEx = nil
+	var hwm uint8
+	
+	sel = &_sel.Sel
+	keys_ex = &_sel.Keys_ex
+	hwm = sel.Nkeys
+	
+	if (hwm >= MAX_OFFS) {
+		return -1
+	}
+	
+	if ((tkey.Off % 4) > 0) {
+		fmt.Printf("offsets MUST be in 32 bit boundaries\n")
+		return -1
+	}
+
+	sel.Keys[hwm].Val = tkey.Val;
+	sel.Keys[hwm].Mask = tkey.Mask;
+	sel.Keys[hwm].Off = tkey.Off;
+	sel.Keys[hwm].At = tkey.At;
+	sel.Keys[hwm].Offmask = tkey.Offmask;
+	sel.Keys[hwm].Shift = tkey.Shift;
+	
+	if (_sel.Extended) {
+		keys_ex[hwm].Htype = tkey.Htype;
+		keys_ex[hwm].Cmd = tkey.Cmd;
+		fmt.Printf("--- tkey.Cmd:%v\n", tkey.Cmd)
+	} else {
+		if (tkey.Htype != TCA_PEDIT_KEY_EX_HDR_TYPE_NETWORK ||
+		    tkey.Cmd != TCA_PEDIT_KEY_EX_CMD_SET) {
+			fmt.Printf(
+				"Munge parameters not supported. Use 'pedit ex munge ...'.\n")
+			return -1
+		}
+	}
+
+	sel.Nkeys++
+	return 0
+	
+}
+
+func Btou32l (b []byte) uint32 {
+	return binary.LittleEndian.Uint32(b)
+}
+
+func Htonl(val uint32) []byte {
+	fmt.Printf("Htonl: %v\n", val)
+	
+	bytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(bytes, val)
+	
+	fmt.Printf("htonl_ret: %v\n", Btou32l(bytes))
+	return bytes
+}
+
+func Ntohl(buf []byte) uint32 {
+	fmt.Printf("Ntohl: %v\n", Btou32l(buf))
+
+	ret := binary.BigEndian.Uint32(buf)
+	
+	fmt.Printf("ntohl_ret: %v\n", ret)
+	return ret
+}
+
+func Ntohs(buf []byte) uint16 {
+	fmt.Printf("Ntohs: %v\n", binary.LittleEndian.Uint16(buf))
+	
+	ret := binary.BigEndian.Uint16(buf)
+	fmt.Printf("ntohs_ret: %v\n", ret)
+	return ret
+}
+
+func PackKey32(retain uint32, sel *MPeditSel, tkey *MPeditKey) int {
+	if (tkey.Off > (tkey.Off & (^(uint32)(3)))) {
+		fmt.Printf(
+			"PackKey32: 32 bit offsets must begin in 32bit boundaries\n")
+		return -1
+	}
+
+	var ret []byte
+	ret = Htonl(tkey.Val & retain)
+	fmt.Printf("key32:val_ret:%v, \n", Btou32l(ret))
+	
+	tkey.Val = Btou32l(ret)
+	
+	ret = Htonl(tkey.Mask | ^retain)
+	fmt.Printf("key32:mask_ret:%v, \n", Btou32l(ret))
+	
+	tkey.Mask = Btou32l(ret)
+	return PackKey(sel, tkey)
+}
+
+func PackKey16(retain uint32, sel *MPeditSel, tkey *MPeditKey) int {
+	var ind, stride uint32
+	var m = [4] uint32 { 0x0000FFFF, 0xFF0000FF, 0xFFFF0000 }
+
+	if (tkey.Val > 0xFFFF || tkey.Mask > 0xFFFF) {
+		fmt.Printf("PackKey16 bad value\n")
+		return -1
+	}
+
+	ind = (uint32)(tkey.Off & 3)
+
+	if (ind == 3) {
+		fmt.Printf("PackKey16 bad index value %d\n", ind)
+		return -1
+	}
+
+	stride = 8 * (2 - ind)
+	
+	var ret []byte
+	ret = Htonl((tkey.Val & retain) << stride)
+	tkey.Val = Btou32l(ret)
+	
+	ret = Htonl(((tkey.Mask | ^retain) << stride) | m[ind])
+	tkey.Mask = Btou32l(ret)
+
+	tkey.Off &= ^(uint32)(3)
+
+	if (PeditDebug) {
+		fmt.Printf("PackKey16: Final val %08x mask %08x\n",
+		       tkey.Val, tkey.Mask)
+	}
+	return PackKey(sel, tkey)
+
+}
+
+func PackKey8(retain uint32, sel *MPeditSel, tkey *MPeditKey) int {
+	var ind, stride uint32
+	var m = [4] uint32 { 0x00FFFFFF, 0xFF00FFFF, 0xFFFF00FF, 0xFFFFFF00 }
+	
+	if (tkey.Val > 0xFF || tkey.Mask > 0xFF) {
+		fmt.Printf("PackKey8 bad value (val %x mask %x\n",
+			tkey.Val, tkey.Mask)
+		return -1
+	}
+
+	ind = (uint32)(tkey.Off & 3)
+
+	stride = 8 * (3 - ind)
+	
+	var ret []byte
+	ret = Htonl((tkey.Val & retain) << stride)
+	tkey.Val = Btou32l(ret)
+	
+	ret = Htonl(((tkey.Mask | ^retain) << stride) | m[ind])
+	tkey.Mask = Btou32l(ret)
+
+	tkey.Off &= ^(uint32)(3)
+
+	if (PeditDebug) {
+		fmt.Printf("PackKey8: Final word off %d  val %08x mask %08x\n",
+		       tkey.Off, tkey.Val, tkey.Mask)
+	}
+	return PackKey(sel, tkey)
+}
+
+func PackMac(sel *MPeditSel, tkey *MPeditKey, mac [6]byte) int {
+	var ret int = 0
+
+	if (0 == (tkey.Off & 0x3)) {
+		fmt.Printf("tkey.Off & 0x3 ...");
+		
+		tkey.Mask = 0
+		tkey.Val = Ntohl(mac[0:4])
+		ret |= PackKey32(^(uint32)(0), sel, tkey)
+
+		tkey.Off += 4
+		tkey.Mask = 0
+		tkey.Val = (uint32)(Ntohs(mac[4:6]))
+		
+		fmt.Printf("off & 0x3, val:%d\n", tkey.Val);
+		
+		ret |= PackKey16(^(uint32)(0), sel, tkey)
+	} else if ( 0 == (tkey.Off & 0x1)) {
+		fmt.Printf("tkey.Off & 0x1 ...");
+		
+		tkey.Mask = 0
+		tkey.Val = (uint32)(Ntohs(mac[0:2]))
+		ret |= PackKey16(^(uint32)(0), sel, tkey)
+
+		tkey.Off += 4
+		tkey.Mask = 0
+		tkey.Val = Ntohl((mac[2:6]))
+		
+		fmt.Printf("off & 0x1, val:%d\n", tkey.Val);
+		
+		ret |= PackKey32(^(uint32)(0), sel, tkey)
+	} else {
+		fmt.Printf(
+			"PackMac: mac offsets must begin in 32bit or 16bit boundaries\n")
+		return -1
+	}
+
+	return ret
+}
+
+func GetInteger(s string) (int, error) {
+	ret, err := strconv.Atoi(s)
+	return ret, err
+}
+
+func GetU32(s string) (uint32, error) {
+	uret64, err := strconv.ParseUint(s, 10, 32)
+	if err != nil {
+		return 0, err
+	}
+	uret32 := (uint32)(uret64)
+	return uret32, err
+}
+
+func GetIpv4(s string) net.IP {
+	return net.ParseIP(s)
+}
+
+func GetMac(s string) (hw net.HardwareAddr, err error) {
+	return net.ParseMAC(s)
+}
+
+func ParseCmd(cmd PeditCMD, cmd_len uint32, cmd_type int, retain uint32, sel *MPeditSel, tkey *MPeditKey) int {
+	var mask,val uint32 = 0, 0
+	/*
+	var m *uint32
+	var v *uint32
+	var o uint32 = 0xFF
+	*/
+	var res int = -1
+	
+	if len(cmd.Key) <= 0 {
+		return -1
+	}
+	
+	if (PeditDebug){ 
+		fmt.Printf("ParseCmd %v length %d, val:%d, mask:%d\n",
+			       cmd, cmd_len, val, mask)
+	}
+
+	/*
+	// TODO 
+	if (len == 2)
+		o = 0xFFFF;
+	if (len == 4)
+		o = 0xFFFFFFFF;
+	*/
+	
+	if (cmd.Action == "add") {
+		tkey.Cmd = TCA_PEDIT_KEY_EX_CMD_ADD
+	}
+	
+	if (cmd_type == TMAC) {
+		hardware_addr, err := GetMac(cmd.Val)
+		if err != nil {
+			fmt.Printf("get mac from %v failed\n", cmd.Val)
+			return -1
+		}
+		
+		var mac [6]byte
+		for index, val := range hardware_addr {
+			mac[index] = val
+		}
+		
+		res = PackMac(sel, tkey, mac)
+		goto done;
+	}
+	
+	if (cmd_type == TIPV4) {
+		netip := GetIpv4(cmd.Val)
+		netip = netip.To4()
+		tkey.Val = Ntohl(netip)
+		res = 0
+	}
+
+	if (cmd_type == TINT) {
+		ret, err := GetInteger(cmd.Val)
+		if err != nil {
+			goto done
+		}
+		tkey.Val = (uint32)(ret)
+		res = 0
+	}
+
+	if (cmd_type == TU32) {
+		ret, err := GetU32(cmd.Val)		
+		if err != nil {
+			goto done
+		}
+		tkey.Val = ret
+		res = 0
+	}
+
+	if (cmd_len == 1) {
+		res = PackKey8(retain, sel, tkey);
+		goto done;
+	}
+	if (cmd_len == 2) {
+		res = PackKey16(retain, sel, tkey);
+		goto done;
+	}
+	if (cmd_len == 4) {
+		res = PackKey32(retain, sel, tkey);
+		goto done;
+	}
+
+	return -1;
+done:
+	if (PeditDebug) {
+		fmt.Printf("ParseCmd done: offset %d length %d\n",
+			        tkey.Off, cmd_len)
+		fmt.Printf("ParseCmd done: word off %d val %08x mask %08x\n",
+		       tkey.Off, tkey.Val, tkey.Mask)
+	}
+
+	return res;
+}
+
+// tc pedit end
+
+
 // struct tc_police {
 // 	__u32			index;
 // 	int			action;
@@ -775,4 +1252,99 @@ const (
 	TCA_HFSC_RSC
 	TCA_HFSC_FSC
 	TCA_HFSC_USC
+)
+
+/* Flower classifier */
+
+const (
+	TCA_FLOWER_UNSPEC = iota
+	TCA_FLOWER_CLASSID
+	TCA_FLOWER_INDEV
+	TCA_FLOWER_ACT
+	TCA_FLOWER_KEY_ETH_DST		/* ETH_ALEN */
+	TCA_FLOWER_KEY_ETH_DST_MASK	/* ETH_ALEN */
+	TCA_FLOWER_KEY_ETH_SRC		/* ETH_ALEN */
+	TCA_FLOWER_KEY_ETH_SRC_MASK	/* ETH_ALEN */
+	TCA_FLOWER_KEY_ETH_TYPE	/* be16 */
+	TCA_FLOWER_KEY_IP_PROTO	/* u8 */
+	TCA_FLOWER_KEY_IPV4_SRC	/* be32 */
+	TCA_FLOWER_KEY_IPV4_SRC_MASK	/* be32 */
+	TCA_FLOWER_KEY_IPV4_DST	/* be32 */
+	TCA_FLOWER_KEY_IPV4_DST_MASK	/* be32 */
+	TCA_FLOWER_KEY_IPV6_SRC	/* struct in6_addr */
+	TCA_FLOWER_KEY_IPV6_SRC_MASK	/* struct in6_addr */
+	TCA_FLOWER_KEY_IPV6_DST	/* struct in6_addr */
+	TCA_FLOWER_KEY_IPV6_DST_MASK	/* struct in6_addr */
+	TCA_FLOWER_KEY_TCP_SRC		/* be16 */
+	TCA_FLOWER_KEY_TCP_DST		/* be16 */
+	TCA_FLOWER_KEY_UDP_SRC		/* be16 */
+	TCA_FLOWER_KEY_UDP_DST		/* be16 */
+
+	TCA_FLOWER_FLAGS
+	TCA_FLOWER_KEY_VLAN_ID		/* be16 */
+	TCA_FLOWER_KEY_VLAN_PRIO	/* u8   */
+	TCA_FLOWER_KEY_VLAN_ETH_TYPE	/* be16 */
+
+	TCA_FLOWER_KEY_ENC_KEY_ID	/* be32 */
+	TCA_FLOWER_KEY_ENC_IPV4_SRC	/* be32 */
+	TCA_FLOWER_KEY_ENC_IPV4_SRC_MASK/* be32 */
+	TCA_FLOWER_KEY_ENC_IPV4_DST	/* be32 */
+	TCA_FLOWER_KEY_ENC_IPV4_DST_MASK/* be32 */
+	TCA_FLOWER_KEY_ENC_IPV6_SRC	/* struct in6_addr */
+	TCA_FLOWER_KEY_ENC_IPV6_SRC_MASK/* struct in6_addr */
+	TCA_FLOWER_KEY_ENC_IPV6_DST	/* struct in6_addr */
+	TCA_FLOWER_KEY_ENC_IPV6_DST_MASK/* struct in6_addr */
+
+	TCA_FLOWER_KEY_TCP_SRC_MASK	/* be16 */
+	TCA_FLOWER_KEY_TCP_DST_MASK	/* be16 */
+	TCA_FLOWER_KEY_UDP_SRC_MASK	/* be16 */
+	TCA_FLOWER_KEY_UDP_DST_MASK	/* be16 */
+	TCA_FLOWER_KEY_SCTP_SRC_MASK	/* be16 */
+	TCA_FLOWER_KEY_SCTP_DST_MASK	/* be16 */
+
+	TCA_FLOWER_KEY_SCTP_SRC	/* be16 */
+	TCA_FLOWER_KEY_SCTP_DST	/* be16 */
+
+	TCA_FLOWER_KEY_ENC_UDP_SRC_PORT	/* be16 */
+	TCA_FLOWER_KEY_ENC_UDP_SRC_PORT_MASK	/* be16 */
+	TCA_FLOWER_KEY_ENC_UDP_DST_PORT	/* be16 */
+	TCA_FLOWER_KEY_ENC_UDP_DST_PORT_MASK	/* be16 */
+
+	TCA_FLOWER_KEY_FLAGS		/* be32 */
+	TCA_FLOWER_KEY_FLAGS_MASK	/* be32 */
+
+	TCA_FLOWER_KEY_ICMPV4_CODE	/* u8 */
+	TCA_FLOWER_KEY_ICMPV4_CODE_MASK/* u8 */
+	TCA_FLOWER_KEY_ICMPV4_TYPE	/* u8 */
+	TCA_FLOWER_KEY_ICMPV4_TYPE_MASK/* u8 */
+	TCA_FLOWER_KEY_ICMPV6_CODE	/* u8 */
+	TCA_FLOWER_KEY_ICMPV6_CODE_MASK/* u8 */
+	TCA_FLOWER_KEY_ICMPV6_TYPE	/* u8 */
+	TCA_FLOWER_KEY_ICMPV6_TYPE_MASK/* u8 */
+
+	TCA_FLOWER_KEY_ARP_SIP		/* be32 */
+	TCA_FLOWER_KEY_ARP_SIP_MASK	/* be32 */
+	TCA_FLOWER_KEY_ARP_TIP		/* be32 */
+	TCA_FLOWER_KEY_ARP_TIP_MASK	/* be32 */
+	TCA_FLOWER_KEY_ARP_OP		/* u8 */
+	TCA_FLOWER_KEY_ARP_OP_MASK	/* u8 */
+	TCA_FLOWER_KEY_ARP_SHA		/* ETH_ALEN */
+	TCA_FLOWER_KEY_ARP_SHA_MASK	/* ETH_ALEN */
+	TCA_FLOWER_KEY_ARP_THA		/* ETH_ALEN */
+	TCA_FLOWER_KEY_ARP_THA_MASK	/* ETH_ALEN */
+
+	TCA_FLOWER_KEY_MPLS_TTL	/* u8 - 8 bits */
+	TCA_FLOWER_KEY_MPLS_BOS	/* u8 - 1 bit */
+	TCA_FLOWER_KEY_MPLS_TC		/* u8 - 3 bits */
+	TCA_FLOWER_KEY_MPLS_LABEL	/* be32 - 20 bits */
+
+	TCA_FLOWER_KEY_TCP_FLAGS	/* be16 */
+	TCA_FLOWER_KEY_TCP_FLAGS_MASK	/* be16 */
+
+	TCA_FLOWER_KEY_IP_TOS		/* u8 */
+	TCA_FLOWER_KEY_IP_TOS_MASK	/* u8 */
+	TCA_FLOWER_KEY_IP_TTL		/* u8 */
+	TCA_FLOWER_KEY_IP_TTL_MASK	/* u8 */
+
+	TCA_FLOWER_MAX = TCA_FLOWER_KEY_IP_TTL_MASK
 )

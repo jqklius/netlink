@@ -2,6 +2,8 @@ package netlink
 
 import (
 	"fmt"
+	"net"
+	"github.com/vishvananda/netlink/nl"
 )
 
 type Filter interface {
@@ -182,6 +184,148 @@ func NewMirredAction(redirIndex int) *MirredAction {
 	}
 }
 
+// tunnel_key begin
+
+const (
+	TCA_TUNNEL_KEY_ACT_SET = 1
+	TCA_TUNNEL_KEY_ACT_RELEASE = 2
+)
+
+type TunnelKeyAction struct {
+	ActionAttrs
+	T_ACTION  		int32 // unset or set
+	DstIP			net.IPNet
+	SrcIP			net.IPNet
+	ID				uint32
+	DstPort			uint16
+}
+
+func (action *TunnelKeyAction) Type() string {
+	return "tunnel_key"
+}
+
+func (action *TunnelKeyAction) Attrs() *ActionAttrs {
+	return &action.ActionAttrs
+}
+
+// tunnel_key end
+
+// pedit begin
+
+
+type PeditMunge struct {
+	ID 		string
+	CMDList [] nl.PeditCMD
+}
+
+type PeditAction struct {
+	ActionAttrs
+	Extended	bool
+	Munges 		[] PeditMunge
+}
+
+func (action *PeditAction) Type() string {
+	return "pedit"
+}
+
+func (action *PeditAction) Attrs() *ActionAttrs {
+	return &action.ActionAttrs
+}
+
+func (action *PeditAction) ParsePeditAction() (*nl.MPeditSel, error) {
+	var sel *nl.MPeditSel = new(nl.MPeditSel)
+	var err error = nil
+	var res int = 0
+	
+	if action.Extended {
+		sel.Extended = true
+	}
+	
+	for _, munge := range action.Munges {
+		switch munge.ID {
+		case "eth":
+			fmt.Printf("eth pedit...")
+			res = ParseEth(&munge, sel)
+			fmt.Printf("ip pedit done:%v\n", res)
+		case "ip":
+			fmt.Printf("ip pedit...")
+			res = ParseIp(&munge, sel)
+			fmt.Printf("ip pedit done:%v\n", res)
+		} 
+	}
+	
+	if res < 0 {
+		err = fmt.Errorf("parse pedit failed\n")
+	}
+	
+	// extra
+	return sel, err
+}
+
+
+func ParseIp(items *PeditMunge, sel *nl.MPeditSel) int {
+	var res int = -1
+	if items.ID != "ip" {
+		fmt.Printf("not ip cmd\n")
+		return 0
+	}
+
+	for _, cmd := range items.CMDList {
+		var tkey *nl.MPeditKey = new(nl.MPeditKey)
+		if sel.Extended {
+			tkey.Htype = nl.TCA_PEDIT_KEY_EX_HDR_TYPE_IP4
+		} else {
+			tkey.Htype = nl.TCA_PEDIT_KEY_EX_HDR_TYPE_NETWORK
+		}
+	
+		fmt.Printf("cmd:%v\n", cmd)
+		switch cmd.Key {
+		case "src":
+			tkey.Off = 12
+			res = nl.ParseCmd(cmd, 4, nl.TIPV4, nl.RU32, sel, tkey)
+		case "dst":
+			tkey.Off = 16
+			res = nl.ParseCmd(cmd, 4, nl.TIPV4, nl.RU32, sel, tkey)
+		case "ttl":
+			tkey.Off = 8
+			res = nl.ParseCmd(cmd, 1, nl.TU32, nl.RU8, sel, tkey)
+		case "df":
+			tkey.Off = 6
+			res = nl.ParseCmd(cmd, 1, nl.TU32, 0x40, sel, tkey)
+		}
+	}
+	return res
+}
+
+func ParseEth(items *PeditMunge, sel *nl.MPeditSel) int {
+	var res int = -1
+	
+	if items.ID != "eth" {
+		fmt.Printf("not eth cmd\n")
+		return 0
+	}
+
+	for _, cmd := range items.CMDList {
+		var tkey *nl.MPeditKey = new(nl.MPeditKey)
+		tkey.Htype = nl.TCA_PEDIT_KEY_EX_HDR_TYPE_ETH
+		
+		switch cmd.Key {
+		case "src":
+			tkey.Off = 6
+			res = nl.ParseCmd(cmd, 6, nl.TMAC, nl.RU32, sel, tkey)
+			break
+		case "dst":
+			tkey.Off = 0
+			res = nl.ParseCmd(cmd, 6, nl.TMAC, nl.RU32, sel, tkey)
+			break	
+		}
+	}
+	
+	return res
+}
+
+// pedit end
+
 // Sel of the U32 filters that contains multiple TcU32Key. This is the copy
 // and the frontend representation of nl.TcU32Sel. It is serialized into canonical
 // nl.TcU32Sel with the appropriate endianness.
@@ -225,6 +369,30 @@ func (filter *U32) Attrs() *FilterAttrs {
 
 func (filter *U32) Type() string {
 	return "u32"
+}
+
+// Flower
+const (
+	TCA_FLOWER_KEY_FLAGS_IS_FRAGMENT = (1 << 0)
+	TCA_FLOWER_KEY_FLAGS_FRAG_IS_FIRST = (1 << 1)
+)
+
+// Flower filters on many packet related properties
+type Flower struct {
+	FilterAttrs
+	DstMac    		net.HardwareAddr
+	EncDstIP		net.IPNet
+	EncKeyID		uint32
+	EncDstPort		uint16
+	Actions    		[]Action
+}
+
+func (filter *Flower) Attrs() *FilterAttrs {
+	return &filter.FilterAttrs
+}
+
+func (filter *Flower) Type() string {
+	return "flower"
 }
 
 // MatchAll filters match all packets

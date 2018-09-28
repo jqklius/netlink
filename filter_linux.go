@@ -138,7 +138,32 @@ func (h *Handle) FilterAdd(filter Filter) error {
 
 	options := nl.NewRtAttr(nl.TCA_OPTIONS, nil)
 
+	// add eth_type
+	nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ETH_TYPE, htons(base.Protocol))
+
 	switch filter := filter.(type) {
+	case *Flower:
+		if filter.DstMac != nil {
+			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ETH_DST, filter.DstMac)
+		}
+		if filter.EncDstIP.IP != nil {
+			fmt.Printf("mask:%v\n", filter.EncDstIP.Mask)
+			fmt.Printf("ip:%v\n", filter.EncDstIP.IP)
+			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ENC_IPV4_DST_MASK, filter.EncDstIP.Mask)
+			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ENC_IPV4_DST, filter.EncDstIP.IP.To4())
+		}
+		if filter.EncKeyID != 0 {
+			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ENC_KEY_ID, htonl(filter.EncKeyID))
+		}
+		if filter.EncDstPort != 0 {
+			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ENC_UDP_DST_PORT, htons(filter.EncDstPort))
+		}
+		// action
+		actionsAttr := nl.NewRtAttrChild(options, nl.TCA_FLOWER_ACT, nil)
+		if err := EncodeActions(actionsAttr, filter.Actions); err != nil {
+			return err
+		}
+
 	case *U32:
 		// Convert TcU32Sel into nl.TcU32Sel as it is without copy.
 		sel := (*nl.TcU32Sel)(unsafe.Pointer(filter.Sel))
@@ -367,6 +392,8 @@ func toAttrs(tcgen *nl.TcGen, attrs *ActionAttrs) {
 	attrs.Bindcnt = int(tcgen.Bindcnt)
 }
 
+// parse pedit
+
 func EncodeActions(attr *nl.RtAttr, actions []Action) error {
 	tabIndex := int(nl.TCA_ACT_TAB)
 
@@ -374,6 +401,68 @@ func EncodeActions(attr *nl.RtAttr, actions []Action) error {
 		switch action := action.(type) {
 		default:
 			return fmt.Errorf("unknown action type %s", action.Type())
+		case *PeditAction:
+			table := nl.NewRtAttrChild(attr, tabIndex, nil)
+			tabIndex++
+			nl.NewRtAttrChild(table, nl.TCA_ACT_KIND, nl.ZeroTerminated("pedit"))
+			aopts := nl.NewRtAttrChild(table, nl.TCA_ACT_OPTIONS, nil)
+			
+			sel, err := action.ParsePeditAction()
+			if err != nil {
+				return err
+			}
+			
+			// action control default
+			action.Action = TC_ACT_OK
+			toTcGen(action.Attrs(), &sel.Sel.TcGen)
+			
+			if (!action.Extended) {
+				nl.NewRtAttrChild(aopts, nl.TCA_PEDIT_PARMS, sel.Sel.Serialize())
+			} else {
+				nl.NewRtAttrChild(aopts, nl.TCA_PEDIT_PARMS_EX, sel.Sel.Serialize())
+				
+				// extra
+				extra := nl.NewRtAttrChild(aopts, nl.TCA_PEDIT_KEYS_EX | nl.NLA_F_NESTED, nil)
+				
+				var i uint8 = 0
+				for i=0; i < sel.Sel.Nkeys; i++ {
+
+					extops := nl.NewRtAttrChild(extra, nl.TCA_PEDIT_KEY_EX | nl.NLA_F_NESTED, nil)
+					
+					k := sel.Keys_ex[i]
+					nl.NewRtAttrChild(extops, nl.TCA_PEDIT_KEY_EX_HTYPE, nl.Uint16Attr((uint16)(k.Htype)))
+					nl.NewRtAttrChild(extops, nl.TCA_PEDIT_KEY_EX_CMD, nl.Uint16Attr((uint16)(k.Cmd)))
+				}
+			}
+			
+		case *TunnelKeyAction:
+			table := nl.NewRtAttrChild(attr, tabIndex, nil)
+			tabIndex++
+			nl.NewRtAttrChild(table, nl.TCA_ACT_KIND, nl.ZeroTerminated("tunnel_key"))
+			aopts := nl.NewRtAttrChild(table, nl.TCA_ACT_OPTIONS, nil)
+			
+			tunnel_key := nl.TcTunnelKey{
+				T_ACTION: int32(action.T_ACTION),
+			}
+			// default action control
+			action.Action = TC_ACT_PIPE
+			
+			toTcGen(action.Attrs(), &tunnel_key.TcGen)
+			nl.NewRtAttrChild(aopts, nl.TCA_TUNNEL_KEY_PARMS, tunnel_key.Serialize())
+			
+			if action.ID != 0 {
+				nl.NewRtAttrChild(aopts, nl.TCA_TUNNEL_KEY_ENC_KEY_ID, htonl(action.ID))
+			}
+			if action.DstPort != 0 {
+				nl.NewRtAttrChild(aopts, nl.TCA_TUNNEL_KEY_ENC_DST_PORT, htons(action.DstPort))
+			}
+			if action.DstIP.IP != nil {
+				nl.NewRtAttrChild(aopts, nl.TCA_TUNNEL_KEY_ENC_IPV4_DST, action.DstIP.IP.To4())
+			}
+			if action.SrcIP.IP != nil {
+				nl.NewRtAttrChild(aopts, nl.TCA_TUNNEL_KEY_ENC_IPV4_SRC, action.SrcIP.IP.To4())
+			}
+			
 		case *MirredAction:
 			table := nl.NewRtAttrChild(attr, tabIndex, nil)
 			tabIndex++
@@ -383,6 +472,9 @@ func EncodeActions(attr *nl.RtAttr, actions []Action) error {
 				Eaction: int32(action.MirredAction),
 				Ifindex: uint32(action.Ifindex),
 			}
+			// default action control
+			action.Action = TC_ACT_STOLEN
+			
 			toTcGen(action.Attrs(), &mirred.TcGen)
 			nl.NewRtAttrChild(aopts, nl.TCA_MIRRED_PARMS, mirred.Serialize())
 		case *BpfAction:
