@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"syscall"
 	"unsafe"
+	"net"
 
 	"github.com/vishvananda/netlink/nl"
 	"golang.org/x/sys/unix"
@@ -147,8 +148,6 @@ func (h *Handle) FilterAdd(filter Filter) error {
 			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ETH_DST, filter.DstMac)
 		}
 		if filter.EncDstIP.IP != nil {
-			fmt.Printf("mask:%v\n", filter.EncDstIP.Mask)
-			fmt.Printf("ip:%v\n", filter.EncDstIP.IP)
 			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ENC_IPV4_DST_MASK, filter.EncDstIP.Mask)
 			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ENC_IPV4_DST, filter.EncDstIP.IP.To4())
 		}
@@ -332,6 +331,8 @@ func (h *Handle) FilterList(link Link, parent uint32) ([]Filter, error) {
 					filter = &BpfFilter{}
 				case "matchall":
 					filter = &MatchAll{}
+				case "flower":
+					filter = &Flower{}
 				default:
 					filter = &GenericFilter{FilterType: filterType}
 				}
@@ -361,6 +362,11 @@ func (h *Handle) FilterList(link Link, parent uint32) ([]Filter, error) {
 					if err != nil {
 						return nil, err
 					}
+				case "flower":
+					detailed, err = parseFlowerData(filter, data)
+					if err != nil {
+						return nil, err
+					}	
 				default:
 					detailed = true
 				}
@@ -522,6 +528,10 @@ func parseActions(tables []syscall.NetlinkRouteAttr) ([]Action, error) {
 					action = &BpfAction{}
 				case "gact":
 					action = &GenericAction{}
+				case "tunnel_key":
+					action = &TunnelKeyAction{}
+				case "pedit":
+					action = &PeditAction{}		
 				default:
 					break nextattr
 				}
@@ -532,6 +542,28 @@ func parseActions(tables []syscall.NetlinkRouteAttr) ([]Action, error) {
 				}
 				for _, adatum := range adata {
 					switch actionType {
+					case "tunnel_key":
+    					switch adatum.Attr.Type {
+						case nl.TCA_TUNNEL_KEY_PARMS:
+							tunnel_key := *nl.DeserializeTcTunnelKey(adatum.Value)
+							toAttrs(&tunnel_key.TcGen, action.Attrs())
+							action.(*TunnelKeyAction).ActionAttrs = ActionAttrs{}
+							action.(*TunnelKeyAction).T_ACTION = int32(tunnel_key.T_ACTION)
+						case nl.TCA_TUNNEL_KEY_ENC_KEY_ID:
+							action.(*TunnelKeyAction).ID = binary.BigEndian.Uint32(adatum.Value[0:4])
+						case nl.TCA_TUNNEL_KEY_ENC_DST_PORT:
+							action.(*TunnelKeyAction).DstPort = binary.BigEndian.Uint16(adatum.Value[0:2])
+                        case nl.TCA_TUNNEL_KEY_ENC_IPV4_DST:
+							action.(*TunnelKeyAction).DstIP.IP = net.IPv4(adatum.Value[0], 
+                                            							    adatum.Value[1],
+                                            							    adatum.Value[2],
+                                            							    adatum.Value[3])
+				        case nl.TCA_TUNNEL_KEY_ENC_IPV4_SRC:
+							action.(*TunnelKeyAction).SrcIP.IP = net.IPv4(adatum.Value[0], 
+                                            							    adatum.Value[1],
+                                            							    adatum.Value[2],
+                                            							    adatum.Value[3])			
+						}
 					case "mirred":
 						switch adatum.Attr.Type {
 						case nl.TCA_MIRRED_PARMS:
@@ -675,6 +707,36 @@ func parseMatchAllData(filter Filter, data []syscall.NetlinkRouteAttr) (bool, er
 				return detailed, err
 			}
 			matchall.Actions, err = parseActions(tables)
+			if err != nil {
+				return detailed, err
+			}
+		}
+	}
+	return detailed, nil
+}
+
+func parseFlowerData(filter Filter, data []syscall.NetlinkRouteAttr) (bool, error) {
+	native = nl.NativeEndian()
+	flower := filter.(*Flower)
+	detailed := true
+	for _, datum := range data {
+		switch datum.Attr.Type {
+		case nl.TCA_FLOWER_KEY_ENC_KEY_ID:
+			flower.EncKeyID = binary.BigEndian.Uint32(datum.Value[0:4])
+		case nl.TCA_FLOWER_KEY_ENC_UDP_DST_PORT:
+			flower.EncDstPort = binary.BigEndian.Uint16(datum.Value[0:2])
+		case nl.TCA_FLOWER_KEY_ETH_DST:
+			flower.DstMac = net.HardwareAddr(datum.Value[0:6])	
+		case nl.TCA_FLOWER_KEY_ENC_IPV4_DST_MASK:
+			flower.EncDstIP.Mask = net.IPv4Mask(datum.Value[0],	datum.Value[1], datum.Value[2], datum.Value[3])
+		case nl.TCA_FLOWER_KEY_ENC_IPV4_DST:
+			flower.EncDstIP.IP = net.IPv4(datum.Value[0], datum.Value[1], datum.Value[2], datum.Value[3])
+		case nl.TCA_FLOWER_ACT:
+			tables, err := nl.ParseRouteAttr(datum.Value)
+			if err != nil {
+				return detailed, err
+			}
+			flower.Actions, err = parseActions(tables)
 			if err != nil {
 				return detailed, err
 			}
