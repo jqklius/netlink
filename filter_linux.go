@@ -140,7 +140,9 @@ func (h *Handle) FilterAdd(filter Filter) error {
 	options := nl.NewRtAttr(nl.TCA_OPTIONS, nil)
 
 	// add eth_type
-	nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ETH_TYPE, htons(base.Protocol))
+	if base.Protocol != unix.ETH_P_ALL {
+    	nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ETH_TYPE, htons(base.Protocol))
+	}
 
 	switch filter := filter.(type) {
 	case *Flower:
