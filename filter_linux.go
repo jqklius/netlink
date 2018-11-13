@@ -400,8 +400,6 @@ func toAttrs(tcgen *nl.TcGen, attrs *ActionAttrs) {
 	attrs.Bindcnt = int(tcgen.Bindcnt)
 }
 
-// parse pedit
-
 func EncodeActions(attr *nl.RtAttr, actions []Action) error {
 	tabIndex := int(nl.TCA_ACT_TAB)
 

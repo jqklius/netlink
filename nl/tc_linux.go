@@ -691,8 +691,6 @@ func (x *TcMirred) Serialize() []byte {
 	return (*(*[SizeofTcMirred]byte)(unsafe.Pointer(x)))[:]
 }
 
-// tunnel_key begin
-
 const (
 	TCA_TUNNEL_KEY_UNSPEC = iota
 	TCA_TUNNEL_KEY_TM
@@ -724,11 +722,6 @@ func DeserializeTcTunnelKey(b []byte) *TcTunnelKey {
 func (x *TcTunnelKey) Serialize() []byte {
 	return (*(*[SizeofTcTunnelKey]byte)(unsafe.Pointer(x)))[:]
 }
-
-// tunnel_key end
-
-
-// tc pedit begin
 
 const (
 	PeditDebug = true
@@ -803,14 +796,12 @@ func (tcsel *TcPeditSel) Len() int {
 }
 
 func DeserializeTcPeditSel(b []byte) *TcPeditSel {
-	//return (*TcTunnelKey)(unsafe.Pointer(&b[0:SizeofTcTunnelKey][0]))
 	return nil
 }
 
 func (tcsel *TcPeditSel) Serialize() []byte {
 	const size = (uint32)(unsafe.Sizeof(*tcsel))
 	datalen := tcsel.Len()
-	fmt.Printf("size:%v, datalen:%v\n", size, datalen)
 	return (*(*[size]byte)(unsafe.Pointer(tcsel)))[:datalen]
 }
 
@@ -827,7 +818,6 @@ type MPeditKey struct {
 	At		uint32
 	Offmask	uint32
 	Shift	uint32
-
 	Htype 	uint32
 	Cmd		uint32
 }
@@ -839,7 +829,6 @@ type MPeditKeyEx struct {
 
 type MPeditSel struct {
 	Sel TcPeditSel
-	//Keys[MAX_OFFS] TcPeditKey
 	Keys_ex[MAX_OFFS] MPeditKeyEx
 	Extended bool
 }
@@ -872,7 +861,6 @@ func PackKey(_sel *MPeditSel, tkey *MPeditKey) int {
 	if (_sel.Extended) {
 		keys_ex[hwm].Htype = tkey.Htype;
 		keys_ex[hwm].Cmd = tkey.Cmd;
-		fmt.Printf("--- tkey.Cmd:%v\n", tkey.Cmd)
 	} else {
 		if (tkey.Htype != TCA_PEDIT_KEY_EX_HDR_TYPE_NETWORK ||
 		    tkey.Cmd != TCA_PEDIT_KEY_EX_CMD_SET) {
@@ -892,29 +880,18 @@ func Btou32l (b []byte) uint32 {
 }
 
 func Htonl(val uint32) []byte {
-	fmt.Printf("Htonl: %v\n", val)
-	
 	bytes := make([]byte, 4)
 	binary.BigEndian.PutUint32(bytes, val)
-	
-	fmt.Printf("htonl_ret: %v\n", Btou32l(bytes))
 	return bytes
 }
 
 func Ntohl(buf []byte) uint32 {
-	fmt.Printf("Ntohl: %v\n", Btou32l(buf))
-
 	ret := binary.BigEndian.Uint32(buf)
-	
-	fmt.Printf("ntohl_ret: %v\n", ret)
 	return ret
 }
 
 func Ntohs(buf []byte) uint16 {
-	fmt.Printf("Ntohs: %v\n", binary.LittleEndian.Uint16(buf))
-	
 	ret := binary.BigEndian.Uint16(buf)
-	fmt.Printf("ntohs_ret: %v\n", ret)
 	return ret
 }
 
@@ -927,13 +904,8 @@ func PackKey32(retain uint32, sel *MPeditSel, tkey *MPeditKey) int {
 
 	var ret []byte
 	ret = Htonl(tkey.Val & retain)
-	fmt.Printf("key32:val_ret:%v, \n", Btou32l(ret))
-	
 	tkey.Val = Btou32l(ret)
-	
 	ret = Htonl(tkey.Mask | ^retain)
-	fmt.Printf("key32:mask_ret:%v, \n", Btou32l(ret))
-	
 	tkey.Mask = Btou32l(ret)
 	return PackKey(sel, tkey)
 }
@@ -1007,7 +979,6 @@ func PackMac(sel *MPeditSel, tkey *MPeditKey, mac [6]byte) int {
 	var ret int = 0
 
 	if (0 == (tkey.Off & 0x3)) {
-		fmt.Printf("tkey.Off & 0x3 ...");
 		
 		tkey.Mask = 0
 		tkey.Val = Ntohl(mac[0:4])
@@ -1017,11 +988,8 @@ func PackMac(sel *MPeditSel, tkey *MPeditKey, mac [6]byte) int {
 		tkey.Mask = 0
 		tkey.Val = (uint32)(Ntohs(mac[4:6]))
 		
-		fmt.Printf("off & 0x3, val:%d\n", tkey.Val);
-		
 		ret |= PackKey16(^(uint32)(0), sel, tkey)
 	} else if ( 0 == (tkey.Off & 0x1)) {
-		fmt.Printf("tkey.Off & 0x1 ...");
 		
 		tkey.Mask = 0
 		tkey.Val = (uint32)(Ntohs(mac[0:2]))
@@ -1030,9 +998,7 @@ func PackMac(sel *MPeditSel, tkey *MPeditKey, mac [6]byte) int {
 		tkey.Off += 4
 		tkey.Mask = 0
 		tkey.Val = Ntohl((mac[2:6]))
-		
-		fmt.Printf("off & 0x1, val:%d\n", tkey.Val);
-		
+
 		ret |= PackKey32(^(uint32)(0), sel, tkey)
 	} else {
 		fmt.Printf(
@@ -1067,11 +1033,7 @@ func GetMac(s string) (hw net.HardwareAddr, err error) {
 
 func ParseCmd(cmd PeditCMD, cmd_len uint32, cmd_type int, retain uint32, sel *MPeditSel, tkey *MPeditKey) int {
 	var mask,val uint32 = 0, 0
-	/*
-	var m *uint32
-	var v *uint32
-	var o uint32 = 0xFF
-	*/
+
 	var res int = -1
 	
 	if len(cmd.Key) <= 0 {
@@ -1160,8 +1122,6 @@ done:
 
 	return res;
 }
-
-// tc pedit end
 
 
 // struct tc_police {
@@ -1253,8 +1213,6 @@ const (
 	TCA_HFSC_FSC
 	TCA_HFSC_USC
 )
-
-/* Flower classifier */
 
 const (
 	TCA_FLOWER_UNSPEC = iota

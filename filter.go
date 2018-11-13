@@ -184,8 +184,6 @@ func NewMirredAction(redirIndex int) *MirredAction {
 	}
 }
 
-// tunnel_key begin
-
 const (
 	TCA_TUNNEL_KEY_ACT_SET = 1
 	TCA_TUNNEL_KEY_ACT_RELEASE = 2
@@ -207,11 +205,6 @@ func (action *TunnelKeyAction) Type() string {
 func (action *TunnelKeyAction) Attrs() *ActionAttrs {
 	return &action.ActionAttrs
 }
-
-// tunnel_key end
-
-// pedit begin
-
 
 type PeditMunge struct {
 	ID 		string
@@ -244,13 +237,9 @@ func (action *PeditAction) ParsePeditAction() (*nl.MPeditSel, error) {
 	for _, munge := range action.Munges {
 		switch munge.ID {
 		case "eth":
-			fmt.Printf("eth pedit...")
 			res = ParseEth(&munge, sel)
-			fmt.Printf("ip pedit done:%v\n", res)
 		case "ip":
-			fmt.Printf("ip pedit...")
 			res = ParseIp(&munge, sel)
-			fmt.Printf("ip pedit done:%v\n", res)
 		} 
 	}
 	
@@ -266,7 +255,6 @@ func (action *PeditAction) ParsePeditAction() (*nl.MPeditSel, error) {
 func ParseIp(items *PeditMunge, sel *nl.MPeditSel) int {
 	var res int = -1
 	if items.ID != "ip" {
-		fmt.Printf("not ip cmd\n")
 		return 0
 	}
 
@@ -277,8 +265,7 @@ func ParseIp(items *PeditMunge, sel *nl.MPeditSel) int {
 		} else {
 			tkey.Htype = nl.TCA_PEDIT_KEY_EX_HDR_TYPE_NETWORK
 		}
-	
-		fmt.Printf("cmd:%v\n", cmd)
+
 		switch cmd.Key {
 		case "src":
 			tkey.Off = 12
@@ -301,7 +288,6 @@ func ParseEth(items *PeditMunge, sel *nl.MPeditSel) int {
 	var res int = -1
 	
 	if items.ID != "eth" {
-		fmt.Printf("not eth cmd\n")
 		return 0
 	}
 
@@ -324,7 +310,6 @@ func ParseEth(items *PeditMunge, sel *nl.MPeditSel) int {
 	return res
 }
 
-// pedit end
 
 // Sel of the U32 filters that contains multiple TcU32Key. This is the copy
 // and the frontend representation of nl.TcU32Sel. It is serialized into canonical
