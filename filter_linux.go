@@ -5,9 +5,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"net"
 	"syscall"
 	"unsafe"
-	"net"
 
 	"github.com/vishvananda/netlink/nl"
 	"golang.org/x/sys/unix"
@@ -141,7 +141,7 @@ func (h *Handle) FilterAdd(filter Filter) error {
 
 	// add eth_type
 	if base.Protocol != unix.ETH_P_ALL {
-    	nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ETH_TYPE, htons(base.Protocol))
+		nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ETH_TYPE, htons(base.Protocol))
 	}
 
 	switch filter := filter.(type) {
@@ -368,7 +368,7 @@ func (h *Handle) FilterList(link Link, parent uint32) ([]Filter, error) {
 					detailed, err = parseFlowerData(filter, data)
 					if err != nil {
 						return nil, err
-					}	
+					}
 				default:
 					detailed = true
 				}
@@ -412,50 +412,50 @@ func EncodeActions(attr *nl.RtAttr, actions []Action) error {
 			tabIndex++
 			nl.NewRtAttrChild(table, nl.TCA_ACT_KIND, nl.ZeroTerminated("pedit"))
 			aopts := nl.NewRtAttrChild(table, nl.TCA_ACT_OPTIONS, nil)
-			
+
 			sel, err := action.ParsePeditAction()
 			if err != nil {
 				return err
 			}
-			
+
 			// action control default
 			action.Action = TC_ACT_OK
 			toTcGen(action.Attrs(), &sel.Sel.TcGen)
-			
-			if (!action.Extended) {
+
+			if !action.Extended {
 				nl.NewRtAttrChild(aopts, nl.TCA_PEDIT_PARMS, sel.Sel.Serialize())
 			} else {
 				nl.NewRtAttrChild(aopts, nl.TCA_PEDIT_PARMS_EX, sel.Sel.Serialize())
-				
-				// extra
-				extra := nl.NewRtAttrChild(aopts, nl.TCA_PEDIT_KEYS_EX | nl.NLA_F_NESTED, nil)
-				
-				var i uint8 = 0
-				for i=0; i < sel.Sel.Nkeys; i++ {
 
-					extops := nl.NewRtAttrChild(extra, nl.TCA_PEDIT_KEY_EX | nl.NLA_F_NESTED, nil)
-					
+				// extra
+				extra := nl.NewRtAttrChild(aopts, nl.TCA_PEDIT_KEYS_EX|nl.NLA_F_NESTED, nil)
+
+				var i uint8 = 0
+				for i = 0; i < sel.Sel.Nkeys; i++ {
+
+					extops := nl.NewRtAttrChild(extra, nl.TCA_PEDIT_KEY_EX|nl.NLA_F_NESTED, nil)
+
 					k := sel.Keys_ex[i]
 					nl.NewRtAttrChild(extops, nl.TCA_PEDIT_KEY_EX_HTYPE, nl.Uint16Attr((uint16)(k.Htype)))
 					nl.NewRtAttrChild(extops, nl.TCA_PEDIT_KEY_EX_CMD, nl.Uint16Attr((uint16)(k.Cmd)))
 				}
 			}
-			
+
 		case *TunnelKeyAction:
 			table := nl.NewRtAttrChild(attr, tabIndex, nil)
 			tabIndex++
 			nl.NewRtAttrChild(table, nl.TCA_ACT_KIND, nl.ZeroTerminated("tunnel_key"))
 			aopts := nl.NewRtAttrChild(table, nl.TCA_ACT_OPTIONS, nil)
-			
+
 			tunnel_key := nl.TcTunnelKey{
 				T_ACTION: int32(action.T_ACTION),
 			}
 			// default action control
 			action.Action = TC_ACT_PIPE
-			
+
 			toTcGen(action.Attrs(), &tunnel_key.TcGen)
 			nl.NewRtAttrChild(aopts, nl.TCA_TUNNEL_KEY_PARMS, tunnel_key.Serialize())
-			
+
 			if action.ID != 0 {
 				nl.NewRtAttrChild(aopts, nl.TCA_TUNNEL_KEY_ENC_KEY_ID, htonl(action.ID))
 			}
@@ -468,7 +468,7 @@ func EncodeActions(attr *nl.RtAttr, actions []Action) error {
 			if action.SrcIP.IP != nil {
 				nl.NewRtAttrChild(aopts, nl.TCA_TUNNEL_KEY_ENC_IPV4_SRC, action.SrcIP.IP.To4())
 			}
-			
+
 		case *MirredAction:
 			table := nl.NewRtAttrChild(attr, tabIndex, nil)
 			tabIndex++
@@ -480,7 +480,7 @@ func EncodeActions(attr *nl.RtAttr, actions []Action) error {
 			}
 			// default action control
 			action.Action = TC_ACT_STOLEN
-			
+
 			toTcGen(action.Attrs(), &mirred.TcGen)
 			nl.NewRtAttrChild(aopts, nl.TCA_MIRRED_PARMS, mirred.Serialize())
 		case *BpfAction:
@@ -531,7 +531,7 @@ func parseActions(tables []syscall.NetlinkRouteAttr) ([]Action, error) {
 				case "tunnel_key":
 					action = &TunnelKeyAction{}
 				case "pedit":
-					action = &PeditAction{}		
+					action = &PeditAction{}
 				default:
 					break nextattr
 				}
@@ -543,7 +543,7 @@ func parseActions(tables []syscall.NetlinkRouteAttr) ([]Action, error) {
 				for _, adatum := range adata {
 					switch actionType {
 					case "tunnel_key":
-    					switch adatum.Attr.Type {
+						switch adatum.Attr.Type {
 						case nl.TCA_TUNNEL_KEY_PARMS:
 							tunnel_key := *nl.DeserializeTcTunnelKey(adatum.Value)
 							toAttrs(&tunnel_key.TcGen, action.Attrs())
@@ -553,16 +553,16 @@ func parseActions(tables []syscall.NetlinkRouteAttr) ([]Action, error) {
 							action.(*TunnelKeyAction).ID = binary.BigEndian.Uint32(adatum.Value[0:4])
 						case nl.TCA_TUNNEL_KEY_ENC_DST_PORT:
 							action.(*TunnelKeyAction).DstPort = binary.BigEndian.Uint16(adatum.Value[0:2])
-                        case nl.TCA_TUNNEL_KEY_ENC_IPV4_DST:
-							action.(*TunnelKeyAction).DstIP.IP = net.IPv4(adatum.Value[0], 
-                                            							    adatum.Value[1],
-                                            							    adatum.Value[2],
-                                            							    adatum.Value[3])
-				        case nl.TCA_TUNNEL_KEY_ENC_IPV4_SRC:
-							action.(*TunnelKeyAction).SrcIP.IP = net.IPv4(adatum.Value[0], 
-                                            							    adatum.Value[1],
-                                            							    adatum.Value[2],
-                                            							    adatum.Value[3])			
+						case nl.TCA_TUNNEL_KEY_ENC_IPV4_DST:
+							action.(*TunnelKeyAction).DstIP.IP = net.IPv4(adatum.Value[0],
+								adatum.Value[1],
+								adatum.Value[2],
+								adatum.Value[3])
+						case nl.TCA_TUNNEL_KEY_ENC_IPV4_SRC:
+							action.(*TunnelKeyAction).SrcIP.IP = net.IPv4(adatum.Value[0],
+								adatum.Value[1],
+								adatum.Value[2],
+								adatum.Value[3])
 						}
 					case "mirred":
 						switch adatum.Attr.Type {
@@ -726,9 +726,9 @@ func parseFlowerData(filter Filter, data []syscall.NetlinkRouteAttr) (bool, erro
 		case nl.TCA_FLOWER_KEY_ENC_UDP_DST_PORT:
 			flower.EncDstPort = binary.BigEndian.Uint16(datum.Value[0:2])
 		case nl.TCA_FLOWER_KEY_ETH_DST:
-			flower.DstMac = net.HardwareAddr(datum.Value[0:6])	
+			flower.DstMac = net.HardwareAddr(datum.Value[0:6])
 		case nl.TCA_FLOWER_KEY_ENC_IPV4_DST_MASK:
-			flower.EncDstIP.Mask = net.IPv4Mask(datum.Value[0],	datum.Value[1], datum.Value[2], datum.Value[3])
+			flower.EncDstIP.Mask = net.IPv4Mask(datum.Value[0], datum.Value[1], datum.Value[2], datum.Value[3])
 		case nl.TCA_FLOWER_KEY_ENC_IPV4_DST:
 			flower.EncDstIP.IP = net.IPv4(datum.Value[0], datum.Value[1], datum.Value[2], datum.Value[3])
 		case nl.TCA_FLOWER_ACT:
