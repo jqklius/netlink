@@ -1,6 +1,7 @@
 package netlink
 
 import (
+	"fmt"
 	"net"
 	"unsafe"
 
@@ -205,12 +206,24 @@ func (h *Handle) NeighProxyList(linkIndex, family int) ([]Neigh, error) {
 
 func (h *Handle) neighList(linkIndex, family, flags int) ([]Neigh, error) {
 	req := h.newNetlinkRequest(unix.RTM_GETNEIGH, unix.NLM_F_DUMP)
-	msg := Ndmsg{
-		Family: uint8(family),
-		Index:  uint32(linkIndex),
-		Flags:  uint8(flags),
+
+	// fdb should use NewIfInfomsg to filter linkindex
+	if family == unix.AF_BRIDGE {
+		msg := nl.NewIfInfomsg(family)
+		msg.Index = int32(linkIndex)
+		msg.Flags = uint32(flags)
+		req.AddData(msg)
+	} else {
+		msg := Ndmsg{
+			Family: uint8(family),
+			Index:  uint32(linkIndex),
+			Flags:  uint8(flags),
+		}
+		req.AddData(&msg)
+		// filter neigh by link index
+		index := nl.NewRtAttr(NDA_IFINDEX, nl.Uint32Attr(uint32(linkIndex)))
+		req.AddData(index)
 	}
-	req.AddData(&msg)
 
 	msgs, err := req.Execute(unix.NETLINK_ROUTE, unix.RTM_NEWNEIGH)
 	if err != nil {
@@ -227,9 +240,9 @@ func (h *Handle) neighList(linkIndex, family, flags int) ([]Neigh, error) {
 
 		neigh, err := NeighDeserialize(m)
 		if err != nil {
+			fmt.Println("err", neigh)
 			continue
 		}
-
 		res = append(res, *neigh)
 	}
 
