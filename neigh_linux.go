@@ -1,7 +1,6 @@
 package netlink
 
 import (
-	"fmt"
 	"net"
 	"unsafe"
 
@@ -214,15 +213,10 @@ func (h *Handle) neighList(linkIndex, family, flags int) ([]Neigh, error) {
 		msg.Flags = uint32(flags)
 		req.AddData(msg)
 	} else {
-		msg := Ndmsg{
-			Family: uint8(family),
-			Index:  uint32(linkIndex),
-			Flags:  uint8(flags),
-		}
-		req.AddData(&msg)
-		// filter neigh by link index
-		index := nl.NewRtAttr(NDA_IFINDEX, nl.Uint32Attr(uint32(linkIndex)))
-		req.AddData(index)
+		msg := nl.NewIfInfomsg(family)
+		msg.Index = int32(linkIndex)
+		msg.Flags = uint32(flags)
+		req.AddData(msg)
 	}
 
 	msgs, err := req.Execute(unix.NETLINK_ROUTE, unix.RTM_NEWNEIGH)
@@ -240,7 +234,6 @@ func (h *Handle) neighList(linkIndex, family, flags int) ([]Neigh, error) {
 
 		neigh, err := NeighDeserialize(m)
 		if err != nil {
-			fmt.Println("err", neigh)
 			continue
 		}
 		res = append(res, *neigh)
@@ -269,7 +262,20 @@ func NeighDeserialize(m []byte) (*Neigh, error) {
 	// once per table dump
 	link, err := LinkByIndex(neigh.LinkIndex)
 	if err != nil {
-		return nil, err
+		links, listErr := LinkList()
+		if listErr != nil {
+			return nil, err
+		} else {
+			for _, l := range links {
+				if l.Attrs().Index == neigh.LinkIndex {
+					link = l
+					break
+				}
+			}
+			if link == nil {
+				return nil, err
+			}
+		}
 	}
 	encapType := link.Attrs().EncapType
 
