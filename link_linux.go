@@ -1353,7 +1353,7 @@ func execGetLink(req *nl.NetlinkRequest) (Link, error) {
 	if err != nil {
 		if errno, ok := err.(syscall.Errno); ok {
 			if errno == unix.ENODEV {
-				return nil, LinkNotFoundError{fmt.Errorf("Link not found")}
+				return nil, LinkNotFoundError{fmt.Errorf("Link not found unix.ENODEV")}
 			}
 		}
 		return nil, err
@@ -1361,7 +1361,7 @@ func execGetLink(req *nl.NetlinkRequest) (Link, error) {
 
 	switch {
 	case len(msgs) == 0:
-		return nil, LinkNotFoundError{fmt.Errorf("Link not found")}
+		return nil, LinkNotFoundError{fmt.Errorf("Link not found len(msgs) == 0")}
 
 	case len(msgs) == 1:
 		return LinkDeserialize(nil, msgs[0])
