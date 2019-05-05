@@ -25,9 +25,7 @@ const (
 	// Arbitrary set value (greater than default 4k) to allow receiving
 	// from kernel more verbose messages e.g. for statistics,
 	// tc rules or filters, or other more memory requiring data.
-	//RECEIVE_BUFFER_SIZE = 65536
-	//RECEIVE_BUFFER_SIZE = 1048575
-	RECEIVE_BUFFER_SIZE = 1024
+	RECEIVE_BUFFER_SIZE = 65536
 )
 
 // SupportedNlFamilies contains the list of netlink families this netlink package supports
@@ -407,13 +405,11 @@ func (req *NetlinkRequest) Execute(sockType int, resType uint16) ([][]byte, erro
 	}
 
 	if err := s.Send(req); err != nil {
-		fmt.Printf("send error:%v\n", err)
 		return nil, err
 	}
 
 	pid, err := s.GetPid()
 	if err != nil {
-		fmt.Printf("GetPid error:%v\n", err)
 		return nil, err
 	}
 
@@ -423,7 +419,6 @@ done:
 	for {
 		msgs, err := s.Receive()
 		if err != nil {
-			fmt.Printf("Receive error:%v\n", err)
 			return nil, err
 		}
 		for _, m := range msgs {
