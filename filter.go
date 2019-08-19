@@ -3,6 +3,7 @@ package netlink
 import (
 	"fmt"
 	"net"
+
 	"github.com/vishvananda/netlink/nl"
 )
 
@@ -185,17 +186,17 @@ func NewMirredAction(redirIndex int) *MirredAction {
 }
 
 const (
-	TCA_TUNNEL_KEY_ACT_SET = 1
+	TCA_TUNNEL_KEY_ACT_SET     = 1
 	TCA_TUNNEL_KEY_ACT_RELEASE = 2
 )
 
 type TunnelKeyAction struct {
 	ActionAttrs
-	T_ACTION  		int32 // unset or set
-	DstIP			net.IPNet
-	SrcIP			net.IPNet
-	ID				uint32
-	DstPort			uint16
+	T_ACTION int32 // unset or set
+	DstIP    net.IPNet
+	SrcIP    net.IPNet
+	ID       uint32
+	DstPort  uint16
 }
 
 func (action *TunnelKeyAction) Type() string {
@@ -207,14 +208,14 @@ func (action *TunnelKeyAction) Attrs() *ActionAttrs {
 }
 
 type PeditMunge struct {
-	ID 		string
-	CMDList [] nl.PeditCMD
+	ID      string
+	CMDList []nl.PeditCMD
 }
 
 type PeditAction struct {
 	ActionAttrs
-	Extended	bool
-	Munges 		[] PeditMunge
+	Extended bool
+	Munges   []PeditMunge
 }
 
 func (action *PeditAction) Type() string {
@@ -229,28 +230,27 @@ func (action *PeditAction) ParsePeditAction() (*nl.MPeditSel, error) {
 	var sel *nl.MPeditSel = new(nl.MPeditSel)
 	var err error = nil
 	var res int = 0
-	
+
 	if action.Extended {
 		sel.Extended = true
 	}
-	
+
 	for _, munge := range action.Munges {
 		switch munge.ID {
 		case "eth":
 			res = ParseEth(&munge, sel)
 		case "ip":
 			res = ParseIp(&munge, sel)
-		} 
+		}
 	}
-	
+
 	if res < 0 {
 		err = fmt.Errorf("parse pedit failed\n")
 	}
-	
+
 	// extra
 	return sel, err
 }
-
 
 func ParseIp(items *PeditMunge, sel *nl.MPeditSel) int {
 	var res int = -1
@@ -286,7 +286,7 @@ func ParseIp(items *PeditMunge, sel *nl.MPeditSel) int {
 
 func ParseEth(items *PeditMunge, sel *nl.MPeditSel) int {
 	var res int = -1
-	
+
 	if items.ID != "eth" {
 		return 0
 	}
@@ -294,7 +294,7 @@ func ParseEth(items *PeditMunge, sel *nl.MPeditSel) int {
 	for _, cmd := range items.CMDList {
 		var tkey *nl.MPeditKey = new(nl.MPeditKey)
 		tkey.Htype = nl.TCA_PEDIT_KEY_EX_HDR_TYPE_ETH
-		
+
 		switch cmd.Key {
 		case "src":
 			tkey.Off = 6
@@ -303,13 +303,12 @@ func ParseEth(items *PeditMunge, sel *nl.MPeditSel) int {
 		case "dst":
 			tkey.Off = 0
 			res = nl.ParseCmd(cmd, 6, nl.TMAC, nl.RU32, sel, tkey)
-			break	
+			break
 		}
 	}
-	
+
 	return res
 }
-
 
 // Sel of the U32 filters that contains multiple TcU32Key. This is the copy
 // and the frontend representation of nl.TcU32Sel. It is serialized into canonical
@@ -358,18 +357,21 @@ func (filter *U32) Type() string {
 
 // Flower
 const (
-	TCA_FLOWER_KEY_FLAGS_IS_FRAGMENT = (1 << 0)
+	TCA_FLOWER_KEY_FLAGS_IS_FRAGMENT   = (1 << 0)
 	TCA_FLOWER_KEY_FLAGS_FRAG_IS_FIRST = (1 << 1)
 )
 
 // Flower filters on many packet related properties
 type Flower struct {
 	FilterAttrs
-	DstMac    		net.HardwareAddr
-	EncDstIP		net.IPNet
-	EncKeyID		uint32
-	EncDstPort		uint16
-	Actions    		[]Action
+	DstMac     net.HardwareAddr
+	SrcMac     net.HardwareAddr
+	SrcIP      net.IPNet
+	DstIP      net.IPNet
+	EncDstIP   net.IPNet
+	EncKeyID   uint32
+	EncDstPort uint16
+	Actions    []Action
 }
 
 func (filter *Flower) Attrs() *FilterAttrs {

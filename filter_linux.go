@@ -149,6 +149,17 @@ func (h *Handle) FilterAdd(filter Filter) error {
 		if filter.DstMac != nil {
 			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ETH_DST, filter.DstMac)
 		}
+		if filter.SrcMac != nil {
+			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ETH_SRC, filter.SrcMac)
+		}
+		if filter.SrcIP.IP != nil {
+			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_IPV4_SRC, filter.SrcIP.IP.To4())
+			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_IPV4_SRC_MASK, filter.SrcIP.Mask)
+		}
+		if filter.DstIP.IP != nil {
+			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_IPV4_DST, filter.DstIP.IP.To4())
+			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_IPV4_DST_MASK, filter.DstIP.Mask)
+		}
 		if filter.EncDstIP.IP != nil {
 			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ENC_IPV4_DST_MASK, filter.EncDstIP.Mask)
 			nl.NewRtAttrChild(options, nl.TCA_FLOWER_KEY_ENC_IPV4_DST, filter.EncDstIP.IP.To4())
@@ -736,6 +747,16 @@ func parseFlowerData(filter Filter, data []syscall.NetlinkRouteAttr) (bool, erro
 			flower.EncDstPort = binary.BigEndian.Uint16(datum.Value[0:2])
 		case nl.TCA_FLOWER_KEY_ETH_DST:
 			flower.DstMac = net.HardwareAddr(datum.Value[0:6])
+		case nl.TCA_FLOWER_KEY_ETH_SRC:
+			flower.SrcMac = net.HardwareAddr(datum.Value[0:6])
+		case nl.TCA_FLOWER_KEY_IPV4_SRC_MASK:
+			flower.SrcIP.Mask = net.IPv4Mask(datum.Value[0], datum.Value[1], datum.Value[2], datum.Value[3])
+		case nl.TCA_FLOWER_KEY_IPV4_SRC:
+			flower.SrcIP.IP = net.IPv4(datum.Value[0], datum.Value[1], datum.Value[2], datum.Value[3])
+		case nl.TCA_FLOWER_KEY_IPV4_DST_MASK:
+			flower.DstIP.Mask = net.IPv4Mask(datum.Value[0], datum.Value[1], datum.Value[2], datum.Value[3])
+		case nl.TCA_FLOWER_KEY_IPV4_DST:
+			flower.DstIP.IP = net.IPv4(datum.Value[0], datum.Value[1], datum.Value[2], datum.Value[3])
 		case nl.TCA_FLOWER_KEY_ENC_IPV4_DST_MASK:
 			flower.EncDstIP.Mask = net.IPv4Mask(datum.Value[0], datum.Value[1], datum.Value[2], datum.Value[3])
 		case nl.TCA_FLOWER_KEY_ENC_IPV4_DST:
