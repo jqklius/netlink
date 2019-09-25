@@ -287,21 +287,21 @@ func (h *Handle) FilterAdd(filter Filter) error {
 // Equivalent to: `tc filter show handle $handle`.
 // Generally returns nothing if link and parent are not specified.
 func FilterGet(link Link, parent, handle uint32, protocol, priority uint16) ([]Filter, error) {
-	return pkgHandle.FilterList(link, parent, handle, protocol, priority)
+	return pkgHandle.FilterList(link, parent, handle, protocol, priority, unix.NLM_F_ECHO)
 }
 
 // FilterList gets a list of filters in the system.
 // Equivalent to: `tc filter show`.
 // Generally returns nothing if link and parent are not specified.
 func FilterList(link Link, parent uint32) ([]Filter, error) {
-	return pkgHandle.FilterList(link, parent, 0, 0, 0)
+	return pkgHandle.FilterList(link, parent, 0, 0, 0, unix.NLM_F_DUMP)
 }
 
 // FilterList gets a list of filters in the system.
 // Equivalent to: `tc filter show`.
 // Generally returns nothing if link and parent are not specified.
-func (h *Handle) FilterList(link Link, parent, handle uint32, protocol, priority uint16) ([]Filter, error) {
-	req := h.newNetlinkRequest(unix.RTM_GETTFILTER, unix.NLM_F_DUMP)
+func (h *Handle) FilterList(link Link, parent, handle uint32, protocol, priority uint16, flags int) ([]Filter, error) {
+	req := h.newNetlinkRequest(unix.RTM_GETTFILTER, flags)
 	msg := &nl.TcMsg{
 		Family: nl.FAMILY_ALL,
 		Parent: parent,
