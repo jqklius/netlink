@@ -301,6 +301,10 @@ func FilterList(link Link, parent uint32) ([]Filter, error) {
 // Equivalent to: `tc filter show`.
 // Generally returns nothing if link and parent are not specified.
 func (h *Handle) FilterList(link Link, parent, handle uint32, protocol, priority uint16, flags int) ([]Filter, error) {
+	// if handle is 0, must not use FilterGet, set flags to be unix.NLM_F_DUMP
+	if handle == 0 && flags == unix.NLM_F_ECHO {
+		flags = unix.NLM_F_DUMP
+	}
 	req := h.newNetlinkRequest(unix.RTM_GETTFILTER, flags)
 	msg := &nl.TcMsg{
 		Family: nl.FAMILY_ALL,
